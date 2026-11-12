@@ -64,9 +64,9 @@ jobs:
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           VIDEO_FILE_PATH: ${{ steps.resolve.outputs.path }}
-          VIDEO_TITLE: "Telegram Upload"
-          VIDEO_DESCRIPTION: "Uploaded via Telegram Bot"
-          VIDEO_VISIBILITY: "unlisted"
+          VIDEO_TITLE: ${{ secrets.VIDEO_TITLE }}
+          VIDEO_DESCRIPTION: ${{ secrets.VIDEO_DESCRIPTION }}
+          VIDEO_VISIBILITY: ${{ secrets.VIDEO_VISIBILITY }}
         run: node uploader.js
 
       - name: Notify Telegram on success
