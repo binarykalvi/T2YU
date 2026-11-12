@@ -1,0 +1,87 @@
+name: T2YU
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_id:
+        description: 'Telegram file_id to download'
+        required: true
+        type: string
+      chat_id:
+        description: 'Chat ID for completion notification'
+        required: true
+        type: string
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start Local Bot API Server
+        id: telegram_server
+        uses: zjns/telegram-bot-server@v1
+        with:
+          api_id: ${{ secrets.TELEGRAM_API_ID }}
+          api_hash: ${{ secrets.TELEGRAM_API_HASH }}
+
+      - name: Resolve file path from Telegram
+        id: resolve
+        run: |
+          SERVER_URL="${{ steps.telegram_server.outputs.server }}"
+          BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          FILE_ID="${{ github.event.inputs.file_id }}"
+
+          # In --local mode, getFile downloads the file to disk and returns
+          # an absolute local path in .result.file_path
+          RESPONSE=$(curl -s "${SERVER_URL}/bot${BOT_TOKEN}/getFile?file_id=${FILE_ID}")
+          echo "getFile Response: $RESPONSE"
+
+          FILE_PATH=$(echo "$RESPONSE" | jq -r '.result.file_path')
+
+          if [ -z "$FILE_PATH" ] || [ "$FILE_PATH" == "null" ]; then
+            echo "Error: Could not resolve file_path."
+            exit 1
+          fi
+
+          echo "Resolved local file path: $FILE_PATH"
+          echo "path=$FILE_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install googleapis
+
+      - name: Run YouTube Uploader
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          VIDEO_FILE_PATH: ${{ steps.resolve.outputs.path }}
+          VIDEO_TITLE: "Telegram Upload"
+          VIDEO_DESCRIPTION: "Uploaded via Telegram Bot"
+          VIDEO_VISIBILITY: "unlisted"
+        run: node uploader.js
+
+      - name: Notify Telegram on success
+        if: success()
+        run: |
+          URL=$(cat result.txt)
+          curl -s -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${{ github.event.inputs.chat_id }}\",\"text\":\"✅ Upload finished!\\n${URL}\"}"
+
+      - name: Notify Telegram on failure
+        if: failure()
+        run: |
+          curl -s -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${{ github.event.inputs.chat_id }}\",\"text\":\"❌ Upload failed. Check logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"
